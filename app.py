@@ -75,8 +75,14 @@ if submitted and question.strip():
             st.dataframe(df, use_container_width=True, hide_index=True)
         with st.expander('Detalhes da consulta e auditoria'):
             st.write('**Estratégia:**', response.trace.plan)
-            st.write('**Tabelas consultadas:**', ', '.join(response.trace.schema_used))
+            st.write('**Interpretação temporal:**', ' '.join(response.trace.temporal_interpretation) or 'Não aplicável.')
+            st.write('**Tabelas efetivamente consultadas:**', ', '.join(response.trace.tables_used) or 'Não identificadas.')
             st.write(f'**Correções de SQL:** {response.trace.retries} · **Tempo de execução:** {response.trace.elapsed_ms} ms')
+            if response.trace.investigation_queries:
+                st.write('**Queries de investigação:**')
+                for sql in response.trace.investigation_queries:
+                    st.code(sql, language='sql')
+            st.write('**Queries finais/executadas:**')
             for sql in response.trace.sql_queries:
                 st.code(sql, language='sql')
             if response.trace.errors:
