@@ -7,9 +7,13 @@ Uma aplicação Streamlit em Python que responde perguntas de negócio sobre um 
 - Introspecção real de tabelas, colunas, chaves estrangeiras e pequenas amostras (`sqlite_master`, `PRAGMA table_info` e `foreign_key_list`);
 - Geração de até três consultas SQLite por pergunta, incluindo JOIN, agregação e datas ISO;
 - Reparação automática de SQL inválido, com erro do SQLite e schema como contexto, limitada por `MAX_SQL_RETRIES`;
+- Resolução temporal data-driven: mês sem ano usa a ocorrência mais recente daquele mês na fonte relevante; períodos recentes são ancorados na maior data disponível, nunca no relógio do servidor;
+- Validação semântica após a execução para detectar resultado vazio com filtros temporais contraditórios e solicitar reformulação limitada;
 - Proteção em duas camadas: URI `mode=ro` no SQLite e allow-list de `SELECT`/CTE, uma instrução apenas;
 - Tabela, KPI, barra ou linha escolhidos somente a partir das colunas retornadas;
 - Trace com plano observável, SQL, erros, tentativas, tabelas e duração. Não exibe raciocínio privado do modelo.
+
+O trace diferencia `schema disponível`, `tabelas efetivamente consultadas`, interpretação temporal, queries de profiling e queries finais. Assim, a auditoria mostra somente as tabelas que aparecem nas SQLs executadas, não todas as tabelas do banco.
 
 ## Arquitetura
 
@@ -28,6 +32,30 @@ flowchart TD
 O orquestrador em `DataAgent` mantém estado explícito (`ExecutionTrace`) e responsabilidades separadas; o desenho é diretamente portável para `StateGraph`/LangGraph e a dependência já está declarada para evoluir o fluxo visualmente. Mantive a execução síncrona e pequena para a demonstração não depender de um runtime adicional.
 
 O modelo recebe um resumo limitado do schema, não o banco inteiro. Ele retorna JSON de plano/SQL; a aplicação valida a consulta antes de executá-la. A resposta numérica vem sempre das linhas devolvidas pelo SQLite — o modelo não recebe permissão para produzir métricas finais.
+
+Antes de planejar consultas com expressões temporais, a aplicação executa pequenas queries de profiling (`MIN`, `MAX` e `MAX` filtrado pelo mês) nas colunas de data descobertas em runtime. Isso torna explícita, por exemplo, a interpretação de “maio” como maio do ano mais recente que contém dados. Se uma consulta válida retorna vazio com indício de conflito temporal, o agente registra a investigação, pede uma reformulação ao modelo e limita as tentativas. Ausência legítima de dados não dispara retry.
+
+### System prompt do planejador SQL
+
+O system prompt abaixo está centralizado em `data_assistant/llm.py`. Para cada pergunta, a aplicação adiciona no input o schema real (incluindo chaves, valores categóricos e pequenas amostras), a resolução temporal calculada no banco e a pergunta do usuário.
+
+```text
+Você é um planejador SQL SQLite. Retorne APENAS JSON
+{"summary":str,"sql":[str],"tables":[str]}.
+
+Use exclusivamente SELECT/CTEs, no máximo 3 SQLs. Não invente tabela/coluna.
+Datas ISO usam strftime. Para “último ano”, descubra a data máxima nos dados
+quando necessário. Use a RESOLUÇÃO TEMPORAL fornecida; não combine MAX global
+com um filtro de mês incompatível.
+
+Em rankings com ORDER BY e LIMIT, inclua desempate determinístico pela dimensão
+exibida (por exemplo, estado ASC). Use os valores categóricos reais fornecidos
+no schema para filtros semânticos; um termo de categoria na pergunta deve filtrar
+o valor correspondente, e não uma categoria mais ampla.
+
+Para janelas temporais, use exatamente a janela da fonte relevante indicada na
+resolução (não uma subtração de dias/anos que inclua mês parcial extra).
+```
 
 ## Estrutura
 
