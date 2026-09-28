@@ -34,6 +34,9 @@ class VisualizationSpec:
 class ExecutionTrace:
     question: str
     schema_used: dict[str, Any] = field(default_factory=dict)
+    tables_used: list[str] = field(default_factory=list)
+    temporal_interpretation: list[str] = field(default_factory=list)
+    investigation_queries: list[str] = field(default_factory=list)
     plan: str = ''
     steps: list[str] = field(default_factory=list)
     sql_queries: list[str] = field(default_factory=list)
